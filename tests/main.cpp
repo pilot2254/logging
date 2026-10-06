@@ -6,7 +6,7 @@ int main()
 	logging::debug("this is a debug message");
 	logging::warning("this is a warning");
 	logging::error("this is an error");
-	logging::fatal("this is fatal");
+	logging::success("this is fatal");
 
 	logging::logger::get().set_show_location(false);
 	logging::info("location hidden");

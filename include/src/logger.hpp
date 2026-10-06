@@ -73,7 +73,7 @@ namespace logging
 		{
 			switch (s)
 			{
-				case severity::info:    return termcolor::green;
+				case severity::success: return termcolor::green;
 				case severity::debug:   return termcolor::cyan;
 				case severity::warning:	return termcolor::yellow;
 				case severity::error:   return termcolor::red;
@@ -84,9 +84,15 @@ namespace logging
 
 		std::mutex m_mutex;
 		file       m_file;
-		severity   m_min = severity::none;
+		severity   m_min = severity::info;
 		bool       m_show_location = true;
 	};
+
+
+
+	// :)
+
+
 
 	//bundles the format string with the place it was called from
 	//(a default argument cant come after "Args..." so i hide it in here)
@@ -101,10 +107,17 @@ namespace logging
 	};
 
 	//easy helpers: logging::info("x = {}", 5);
+
 	template <typename... Args>
 	void info(format_loc<std::type_identity_t<Args>...> f, Args&&... args)
 	{
 		logger::get().log(severity::info, std::format(f.fmt, std::forward<Args>(args)...), f.loc);
+	}
+
+	template <typename... Args>
+	void success(format_loc<std::type_identity_t<Args>...> f, Args&&... args)
+	{
+		logger::get().log(severity::success, std::format(f.fmt, std::forward<Args>(args)...), f.loc);
 	}
 
 	template <typename... Args>
