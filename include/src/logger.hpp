@@ -4,12 +4,14 @@
 #include <cstdlib>
 #include <filesystem>
 #include <format>
+#include <functional>
 #include <iostream>
 #include <mutex>
 #include <source_location>
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <vector>
 
 #ifdef _WIN32
 #include <process.h>
@@ -82,6 +84,22 @@ namespace logging
 			m_use_stderr = use;
 		}
 
+		//a sink gets every line that passes the min severity (plain text, no colors)
+		//it gets called while the logger is locked, so calling logging::info() etc inside a sink does nothing
+		using sink = std::function<void(severity, const std::string&)>;
+
+		void add_sink(sink s)
+		{
+			std::lock_guard lock(m_mutex);
+			m_sinks.push_back(std::move(s));
+		}
+
+		void clear_sinks()
+		{
+			std::lock_guard lock(m_mutex);
+			m_sinks.clear();
+		}
+
 		//flushes the file and calls std::abort() right after a fatal message (off by default)
 		void set_abort_on_fatal(bool enable)
 		{
@@ -120,6 +138,8 @@ namespace logging
 
 		void log(severity s, const std::string& message, const std::source_location& loc = std::source_location::current())
 		{
+			if (in_sink()) return;
+
 			std::unique_lock lock(m_mutex);
 			if (s < m_min) return;
 
@@ -162,6 +182,14 @@ namespace logging
 				m_file.write(line, m_auto_flush || s >= severity::warning);
 			}
 
+			in_sink() = true;
+			for (auto& fn : m_sinks)
+			{
+				try { fn(s, line); }
+				catch (...) {} //a broken sink shouldnt take the program down
+			}
+			in_sink() = false;
+
 			if (m_abort_on_fatal && s == severity::fatal)
 			{
 				m_file.flush();
@@ -172,6 +200,12 @@ namespace logging
 
 	private:
 		logger() : m_pid(LOGGING_GETPID()) {}
+
+		static bool& in_sink()
+		{
+			static thread_local bool flag = false;
+			return flag;
+		}
 
 		//termcolor for each severity
 		static std::ostream& (*color(severity s))(std::ostream&)
@@ -201,6 +235,7 @@ namespace logging
 		bool       m_file_tried = false;
 		bool       m_auto_flush = false;
 		bool       m_abort_on_fatal = false;
+		std::vector<sink> m_sinks;
 	};
 
 

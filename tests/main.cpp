@@ -9,7 +9,11 @@ int main()
 	logging::error("this is an error");
 	logging::fatal("this is fatal");
 
+
+
 	std::cout << "\n\n";
+
+
 
 	auto& log = logging::logger::get();
 
@@ -48,10 +52,25 @@ int main()
 	logging::info("flushed right away");
 	log.set_auto_flush(false);
 	log.flush();							//or flush by hand whenever you want
+
+
+
 	std::cout << "\n\n";
+
+
 
 	std::cout << "also comes with args support: " << '\n';
 	logging::info("my name is {} and im {} years old", "mike", 17);
+
+	//sinks get every line too, here we just count the errors
+	int errors = 0;
+	log.add_sink([&](logging::severity sev, const std::string& line)
+	{
+		if (sev >= logging::severity::error) errors++;
+	});
+	logging::error("this goes to the console, the file and the sink");
+	logging::info("errors seen by the sink: {}", errors);
+	log.clear_sinks();
 
 	//log.set_abort_on_fatal(true); //would kill the program right after a fatal message
 
