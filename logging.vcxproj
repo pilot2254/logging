@@ -21,6 +21,7 @@
   <ItemGroup>
     <ClInclude Include="include\logging.hpp" />
     <ClInclude Include="include\src\file.hpp" />
+    <ClInclude Include="include\src\helpers.hpp" />
     <ClInclude Include="include\src\logger.hpp" />
     <ClInclude Include="include\src\severity.hpp" />
     <ClInclude Include="include\src\time.hpp" />

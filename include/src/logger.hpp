@@ -1,16 +1,14 @@
 #pragma once
 
-#include <concepts>
 #include <cstdlib>
 #include <filesystem>
 #include <format>
 #include <functional>
 #include <iostream>
+#include <memory>
 #include <mutex>
 #include <source_location>
 #include <string>
-#include <string_view>
-#include <type_traits>
 #include <vector>
 
 #ifdef _WIN32
@@ -31,10 +29,12 @@ namespace logging
 	class logger
 	{
 	public:
+		//the instance is never destroyed on purpose, so logging from a static destructor
+		//(which runs after main) is always safe. whatever is still buffered gets flushed at exit
 		static logger& get()
 		{
-			static logger instance;
-			return instance;
+			static logger* instance = new logger;
+			return *instance;
 		}
 
 		bool set_file(const std::string& path)
@@ -44,14 +44,12 @@ namespace logging
 			return m_file.open(path);
 		}
 
-		//if its off log.txt never gets created
 		void set_log_to_file(bool enable)
 		{
 			std::lock_guard lock(m_mutex);
 			m_log_to_file = enable;
 		}
 
-		//messages below this severity are ignored
 		void set_min_severity(severity s)
 		{
 			std::lock_guard lock(m_mutex);
@@ -76,7 +74,6 @@ namespace logging
 			m_show_severity = show;
 		}
 
-		//error and fatal go to stderr instead of stdout
 		void set_use_stderr(bool use)
 		{
 			std::lock_guard lock(m_mutex);
@@ -85,21 +82,25 @@ namespace logging
 
 		//a sink gets every line that passes the min severity (plain text, no colors)
 		//it gets called while the logger is locked, so calling logging::info() etc inside a sink does nothing
+		//changing settings or adding/removing sinks from inside a sink is fine
 		using sink = std::function<void(severity, const std::string&)>;
 
 		void add_sink(sink s)
 		{
 			std::lock_guard lock(m_mutex);
-			m_sinks.push_back(std::move(s));
+			//copy on write, so a sink can add/clear sinks while the list is being walked
+			auto copy = std::make_shared<std::vector<sink>>(*m_sinks);
+			copy->push_back(std::move(s));
+			m_sinks = std::move(copy);
 		}
 
 		void clear_sinks()
 		{
 			std::lock_guard lock(m_mutex);
-			m_sinks.clear();
+			m_sinks = std::make_shared<std::vector<sink>>();
 		}
 
-		//flushes the file and calls std::abort() right after a fatal message (off by default)
+		//flushes everything and calls std::abort() right after a fatal message (off by default)
 		void set_abort_on_fatal(bool enable)
 		{
 			std::lock_guard lock(m_mutex);
@@ -114,28 +115,52 @@ namespace logging
 			m_auto_flush = enable;
 		}
 
-		//force everything to disk rn
 		void flush()
 		{
 			std::lock_guard lock(m_mutex);
 			m_file.flush();
 		}
 
-		//adds pid to every new log line
 		void set_show_pid(bool show)
 		{
 			std::lock_guard lock(m_mutex);
 			m_show_pid = show;
 		}
 
-		//colors only affect the console, the log file is always plain text
 		void set_use_color(bool use)
 		{
 			std::lock_guard lock(m_mutex);
 			m_use_color = use;
 		}
 
-		void log(severity s, const std::string& message, const std::source_location& loc = std::source_location::current())
+		//never throws, a logger should not be the thing that crashes your program
+		void log(severity s, const std::string& message, const std::source_location& loc = std::source_location::current()) noexcept
+		{
+			try { write(s, message, loc); }
+			catch (...) {}
+		}
+
+	private:
+		logger() : m_pid(LOGGING_GETPID())
+		{
+			std::atexit(&logger::at_exit);
+		}
+
+		//since the instance is never destroyed we flush by hand when the program exits
+		//anything logged after this (static destructors) gets flushed right away
+		static void at_exit() noexcept
+		{
+			try
+			{
+				logger& self = get();
+				std::lock_guard lock(self.m_mutex);
+				self.m_exiting = true;
+				self.m_file.flush();
+			}
+			catch (...) {}
+		}
+
+		void write(severity s, const std::string& message, const std::source_location& loc)
 		{
 			if (in_sink()) return;
 
@@ -156,7 +181,6 @@ namespace logging
 				prefix += std::format(" [{}:{}]", name, loc.line());
 			}
 
-			//everything above starts with a space
 			std::string line = prefix.empty() ? message : prefix.substr(1) + ": " + message;
 
 			std::ostream& out = (m_use_stderr && s >= severity::error) ? std::cerr : std::cout;
@@ -166,34 +190,36 @@ namespace logging
 
 			if (m_log_to_file)
 			{
-				//only create the file the first time its needed
 				if (!m_file_tried)
 				{
 					m_file_tried = true;
 					m_file.open("log.txt");
 				}
 
-				m_file.write(line, m_auto_flush || s >= severity::warning);
+				m_file.write(line, m_auto_flush || m_exiting || s >= severity::warning);
 			}
 
-			in_sink() = true;
-			for (auto& fn : m_sinks)
+			//walk a snapshot, so a sink changing the sink list cant break the loop
+			const auto sinks = m_sinks;
 			{
-				try { fn(s, line); }
-				catch (...) {} //a broken sink shouldnt take the program down
+				sink_guard guard;
+				for (const auto& fn : *sinks)
+				{
+					try { fn(s, line); }
+					catch (...) {} //a broken sink shouldnt take the program down
+				}
 			}
-			in_sink() = false;
 
 			if (m_abort_on_fatal && s == severity::fatal)
 			{
+				//abort() doesnt flush anything, so do it ourselves or the last lines get lost when stdout is redirected
 				m_file.flush();
+				std::cout.flush();
+				std::cerr.flush();
 				lock.unlock(); //dont die while holding the mutex
 				std::abort();
 			}
 		}
-
-	private:
-		logger() : m_pid(LOGGING_GETPID()) {}
 
 		static bool& in_sink()
 		{
@@ -201,7 +227,15 @@ namespace logging
 			return flag;
 		}
 
-		//termcolor for each severity
+		//sets the flag and always clears it again, even if something throws
+		struct sink_guard
+		{
+			sink_guard() { in_sink() = true; }
+			~sink_guard() { in_sink() = false; }
+			sink_guard(const sink_guard&) = delete;
+			sink_guard& operator=(const sink_guard&) = delete;
+		};
+
 		static std::ostream& (*color(severity s))(std::ostream&)
 		{
 			switch (s)
@@ -215,10 +249,11 @@ namespace logging
 			}
 		}
 
-		std::mutex m_mutex;
+		//recursive so a sink can call the set_* functions / add_sink / clear_sinks without deadlocking
+		std::recursive_mutex m_mutex;
 		file       m_file;
 		int        m_pid;
-		severity   m_min = severity::debug; //show everything by default
+		severity   m_min = severity::debug;
 		bool       m_show_time = true;
 		bool       m_show_severity = true;
 		bool       m_show_location = true;
@@ -229,62 +264,7 @@ namespace logging
 		bool       m_file_tried = false;
 		bool       m_auto_flush = false;
 		bool       m_abort_on_fatal = false;
-		std::vector<sink> m_sinks;
+		bool       m_exiting = false;
+		std::shared_ptr<const std::vector<sink>> m_sinks = std::make_shared<const std::vector<sink>>();
 	};
-
-
-
-	// :)
-
-
-
-	//bundles the format string with the place it was called from
-	//(a default argument cant come after "Args..." so i hide it in here)
-	template <typename... Args>
-	struct format_loc
-	{
-		std::format_string<Args...> fmt;
-		std::source_location        loc;
-
-		template <typename T> requires std::convertible_to<const T&, std::string_view>
-		consteval format_loc(const T& f, std::source_location l = std::source_location::current()) : fmt(f), loc(l) {}
-	};
-
-	//easy helpers: logging::info("x = {}", 5);
-
-	template <typename... Args>
-	void info(format_loc<std::type_identity_t<Args>...> f, Args&&... args)
-	{
-		logger::get().log(severity::info, std::format(f.fmt, std::forward<Args>(args)...), f.loc);
-	}
-
-	template <typename... Args>
-	void success(format_loc<std::type_identity_t<Args>...> f, Args&&... args)
-	{
-		logger::get().log(severity::success, std::format(f.fmt, std::forward<Args>(args)...), f.loc);
-	}
-
-	template <typename... Args>
-	void debug(format_loc<std::type_identity_t<Args>...> f, Args&&... args)
-	{
-		logger::get().log(severity::debug, std::format(f.fmt, std::forward<Args>(args)...), f.loc);
-	}
-
-	template <typename... Args>
-	void warning(format_loc<std::type_identity_t<Args>...> f, Args&&... args)
-	{
-		logger::get().log(severity::warning, std::format(f.fmt, std::forward<Args>(args)...), f.loc);
-	}
-
-	template <typename... Args>
-	void error(format_loc<std::type_identity_t<Args>...> f, Args&&... args)
-	{
-		logger::get().log(severity::error, std::format(f.fmt, std::forward<Args>(args)...), f.loc);
-	}
-
-	template <typename... Args>
-	void fatal(format_loc<std::type_identity_t<Args>...> f, Args&&... args)
-	{
-		logger::get().log(severity::fatal, std::format(f.fmt, std::forward<Args>(args)...), f.loc);
-	}
 }

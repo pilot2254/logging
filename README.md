@@ -83,6 +83,12 @@ severity order is in `severity.hpp`
 
 by default the file only gets flushed on warning and above, so logging a lot of info/debug stuff is fast. if the program crashes you might lose the last few info lines, but warnings and errors are always on disk. `set_auto_flush(true)` flushes every line if you dont care about speed
 
+everything is also flushed when the program exits normally and right before `abort_on_fatal` aborts (even if stdout is redirected to a file or pipe)
+
+### errors
+
+the logger never throws. if a format fails (for example a broken `std::formatter`) the line shows `<log formatting failed: ...>` instead, and if the time zone database isnt available the timestamps are in utc. the logger instance is never destroyed, so its safe to log from static destructors
+
 ## sinks
 
 a sink is a function that gets every log line, so you can send logs somewhere else (a gui window, a webhook, whatever)
@@ -98,8 +104,9 @@ log.clear_sinks(); // remove all of them
 
 - you get plain text, no colors
 - only lines that pass the min severity
-- logging from inside a sink does nothing (otherwise it would deadlock)
+- logging from inside a sink does nothing (otherwise it would loop forever), but changing settings or adding/clearing sinks from inside one is fine
 - if a sink throws it gets ignored
+- sinks run one at a time while the logger is locked, so a slow sink slows down logging
 
 ## requirements
 
@@ -109,7 +116,3 @@ log.clear_sinks(); // remove all of them
 ## building the test
 
 open `logging.slnx` in visual studio and run it. the test is in `tests/main.cpp`
-
-## license
-
-do whatever you want with it
