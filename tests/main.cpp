@@ -44,6 +44,10 @@ int main()
 
 	log.set_min_severity(logging::severity::debug);
 
+	log.set_auto_flush(true);				//flush every line instead of just warning and above
+	logging::info("flushed right away");
+	log.set_auto_flush(false);
+	log.flush();							//or flush by hand whenever you want
 	std::cout << "\n\n";
 
 	std::cout << "also comes with args support: " << '\n';

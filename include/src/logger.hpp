@@ -81,6 +81,21 @@ namespace logging
 			m_use_stderr = use;
 		}
 
+		//true = flush the file after every line (slow if you log a lot)
+		//false = only flush on warning and above, so errors still make it to disk if the program crashes
+		void set_auto_flush(bool enable)
+		{
+			std::lock_guard lock(m_mutex);
+			m_auto_flush = enable;
+		}
+
+		//force everything to disk right now
+		void flush()
+		{
+			std::lock_guard lock(m_mutex);
+			m_file.flush();
+		}
+
 		//adds [pid:1234] to every line
 		void set_show_pid(bool show)
 		{
@@ -136,7 +151,7 @@ namespace logging
 					m_file.open("log.txt");
 				}
 
-				m_file.write(line);
+				m_file.write(line, m_auto_flush || s >= severity::warning);
 			}
 		}
 
@@ -169,6 +184,7 @@ namespace logging
 		bool       m_use_stderr = true;
 		bool       m_log_to_file = true;
 		bool       m_file_tried = false;
+		bool       m_auto_flush = false;
 	};
 
 
