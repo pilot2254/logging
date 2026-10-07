@@ -53,6 +53,8 @@ int main()
 	std::cout << "also comes with args support: " << '\n';
 	logging::info("my name is {} and im {} years old", "mike", 17);
 
+	//log.set_abort_on_fatal(true); //would kill the program right after a fatal message
+
 	std::cin.get();
 
 	return 0;

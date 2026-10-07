@@ -1,6 +1,7 @@
 #pragma once
 
 #include <concepts>
+#include <cstdlib>
 #include <filesystem>
 #include <format>
 #include <iostream>
@@ -81,6 +82,13 @@ namespace logging
 			m_use_stderr = use;
 		}
 
+		//flushes the file and calls std::abort() right after a fatal message (off by default)
+		void set_abort_on_fatal(bool enable)
+		{
+			std::lock_guard lock(m_mutex);
+			m_abort_on_fatal = enable;
+		}
+
 		//true = flush the file after every line (slow if you log a lot)
 		//false = only flush on warning and above, so errors still make it to disk if the program crashes
 		void set_auto_flush(bool enable)
@@ -112,7 +120,7 @@ namespace logging
 
 		void log(severity s, const std::string& message, const std::source_location& loc = std::source_location::current())
 		{
-			std::lock_guard lock(m_mutex);
+			std::unique_lock lock(m_mutex);
 			if (s < m_min) return;
 
 			std::string prefix;
@@ -153,6 +161,13 @@ namespace logging
 
 				m_file.write(line, m_auto_flush || s >= severity::warning);
 			}
+
+			if (m_abort_on_fatal && s == severity::fatal)
+			{
+				m_file.flush();
+				lock.unlock(); //dont die while holding the mutex
+				std::abort();
+			}
 		}
 
 	private:
@@ -185,6 +200,7 @@ namespace logging
 		bool       m_log_to_file = true;
 		bool       m_file_tried = false;
 		bool       m_auto_flush = false;
+		bool       m_abort_on_fatal = false;
 	};
 
 
