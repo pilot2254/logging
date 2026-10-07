@@ -10,6 +10,14 @@
 #include <string_view>
 #include <type_traits>
 
+#ifdef _WIN32
+#include <process.h>
+#define LOGGING_GETPID() _getpid()
+#else
+#include <unistd.h>
+#define LOGGING_GETPID() getpid()
+#endif
+
 #include "../vendor/termcolor.hpp"
 #include "file.hpp"
 #include "severity.hpp"
@@ -45,12 +53,29 @@ namespace logging
 			m_show_location = show;
 		}
 
+		//adds [pid:1234] to every line
+		void set_show_pid(bool show)
+		{
+			std::lock_guard lock(m_mutex);
+			m_show_pid = show;
+		}
+
+		//colors only affect the console, the log file is always plain text
+		void set_use_color(bool use)
+		{
+			std::lock_guard lock(m_mutex);
+			m_use_color = use;
+		}
+
 		void log(severity s, const std::string& message, const std::source_location& loc = std::source_location::current())
 		{
 			std::lock_guard lock(m_mutex);
 			if (s < m_min) return;
 
 			std::string line = std::format("[{}] [{}]", GetTime(), SeverityToString(s));
+
+			if (m_show_pid)
+				line += std::format(" [pid:{}]", m_pid);
 
 			if (m_show_location)
 			{
@@ -60,13 +85,16 @@ namespace logging
 
 			line += ": " + message;
 
-			std::cout << color(s) << line << termcolor::reset << '\n';
+			if (m_use_color)
+				std::cout << color(s) << line << termcolor::reset << '\n';
+			else
+				std::cout << line << '\n';
 
 			m_file.write(line);
 		}
 
 	private:
-		logger() { m_file.open("log.txt"); }
+		logger() : m_pid(LOGGING_GETPID()) { m_file.open("log.txt"); }
 
 		//termcolor for each severity
 		static std::ostream& (*color(severity s))(std::ostream&)
@@ -84,8 +112,11 @@ namespace logging
 
 		std::mutex m_mutex;
 		file       m_file;
-		severity   m_min = severity::info;
+		int        m_pid;
+		severity   m_min = severity::debug; //show everything by default
 		bool       m_show_location = true;
+		bool       m_show_pid = false;
+		bool       m_use_color = true;
 	};
 
 

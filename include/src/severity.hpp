@@ -5,9 +5,9 @@ namespace logging
 {
 	enum class severity
 	{
-		info = 0,
-		success = 1,
-		debug = 2,
+		debug = 0,
+		info = 1,
+		success = 2,
 		warning = 3,
 		error = 4,
 		fatal = 5
