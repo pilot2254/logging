@@ -9,6 +9,8 @@ int main()
 	logging::error("this is an error");
 	logging::fatal("this is fatal");
 
+	std::cout << "\n\n";
+
 	auto& log = logging::logger::get();
 
 	log.set_show_location(false);
@@ -22,11 +24,26 @@ int main()
 
 	log.set_use_color(true);
 	log.set_show_pid(false);
+
+	log.set_show_time(false);
+	logging::info("time hidden");
+
+	log.set_show_severity(false);
+	logging::info("time and severity hidden");
+
+	log.set_show_time(true);
+	log.set_show_severity(true);
+
+	log.set_log_to_file(false);
+	logging::info("this one isnt written to the file");
+	log.set_log_to_file(true);
+
 	log.set_min_severity(logging::severity::warning);
 	logging::info("you wont see this");
 	logging::warning("but you will see this");
 
 	log.set_min_severity(logging::severity::debug);
+
 	std::cout << "\n\n";
 
 	std::cout << "also comes with args support: " << '\n';

@@ -34,10 +34,19 @@ namespace logging
 			return instance;
 		}
 
+		//change the log file (default is log.txt)
 		bool set_file(const std::string& path)
 		{
 			std::lock_guard lock(m_mutex);
+			m_file_tried = true;
 			return m_file.open(path);
+		}
+
+		//turn writing to the log file on/off, when its off log.txt never gets created
+		void set_log_to_file(bool enable)
+		{
+			std::lock_guard lock(m_mutex);
+			m_log_to_file = enable;
 		}
 
 		//messages below this severity are ignored
@@ -51,6 +60,25 @@ namespace logging
 		{
 			std::lock_guard lock(m_mutex);
 			m_show_location = show;
+		}
+
+		void set_show_time(bool show)
+		{
+			std::lock_guard lock(m_mutex);
+			m_show_time = show;
+		}
+
+		void set_show_severity(bool show)
+		{
+			std::lock_guard lock(m_mutex);
+			m_show_severity = show;
+		}
+
+		//error and fatal go to stderr instead of stdout
+		void set_use_stderr(bool use)
+		{
+			std::lock_guard lock(m_mutex);
+			m_use_stderr = use;
 		}
 
 		//adds [pid:1234] to every line
@@ -72,29 +100,48 @@ namespace logging
 			std::lock_guard lock(m_mutex);
 			if (s < m_min) return;
 
-			std::string line = std::format("[{}] [{}]", GetTime(), SeverityToString(s));
+			std::string prefix;
+
+			if (m_show_time)
+				prefix += std::format(" [{}]", GetTime());
+
+			if (m_show_severity)
+				prefix += std::format(" [{}]", SeverityToString(s));
 
 			if (m_show_pid)
-				line += std::format(" [pid:{}]", m_pid);
+				prefix += std::format(" [pid:{}]", m_pid);
 
 			if (m_show_location)
 			{
 				const std::string name = std::filesystem::path(loc.file_name()).filename().string();
-				line += std::format(" [{}:{}]", name, loc.line());
+				prefix += std::format(" [{}:{}]", name, loc.line());
 			}
 
-			line += ": " + message;
+			//everything above starts with a space, so cut that off
+			std::string line = prefix.empty() ? message : prefix.substr(1) + ": " + message;
+
+			std::ostream& out = (m_use_stderr && s >= severity::error) ? std::cerr : std::cout;
 
 			if (m_use_color)
-				std::cout << color(s) << line << termcolor::reset << '\n';
+				out << color(s) << line << termcolor::reset << '\n';
 			else
-				std::cout << line << '\n';
+				out << line << '\n';
 
-			m_file.write(line);
+			if (m_log_to_file)
+			{
+				//only create the file the first time we actually need it
+				if (!m_file_tried)
+				{
+					m_file_tried = true;
+					m_file.open("log.txt");
+				}
+
+				m_file.write(line);
+			}
 		}
 
 	private:
-		logger() : m_pid(LOGGING_GETPID()) { m_file.open("log.txt"); }
+		logger() : m_pid(LOGGING_GETPID()) {}
 
 		//termcolor for each severity
 		static std::ostream& (*color(severity s))(std::ostream&)
@@ -114,9 +161,14 @@ namespace logging
 		file       m_file;
 		int        m_pid;
 		severity   m_min = severity::debug; //show everything by default
+		bool       m_show_time = true;
+		bool       m_show_severity = true;
 		bool       m_show_location = true;
 		bool       m_show_pid = false;
 		bool       m_use_color = true;
+		bool       m_use_stderr = true;
+		bool       m_log_to_file = true;
+		bool       m_file_tried = false;
 	};
 
 
