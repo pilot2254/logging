@@ -13,7 +13,7 @@ namespace logging
 		fatal = 5
 	};
 
-	inline std::string SeverityToString(severity s)
+	inline std::string severity_to_string(severity s)
 	{
 		switch (s)
 		{

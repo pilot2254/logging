@@ -1,14 +1,17 @@
 #pragma once
 
 #include <concepts>
+#include <cstdlib>
 #include <filesystem>
 #include <format>
+#include <functional>
 #include <iostream>
 #include <mutex>
 #include <source_location>
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <vector>
 
 #ifdef _WIN32
 #include <process.h>
@@ -34,7 +37,6 @@ namespace logging
 			return instance;
 		}
 
-		//change the log file (default is log.txt)
 		bool set_file(const std::string& path)
 		{
 			std::lock_guard lock(m_mutex);
@@ -42,7 +44,7 @@ namespace logging
 			return m_file.open(path);
 		}
 
-		//turn writing to the log file on/off, when its off log.txt never gets created
+		//if its off log.txt never gets created
 		void set_log_to_file(bool enable)
 		{
 			std::lock_guard lock(m_mutex);
@@ -81,7 +83,45 @@ namespace logging
 			m_use_stderr = use;
 		}
 
-		//adds [pid:1234] to every line
+		//a sink gets every line that passes the min severity (plain text, no colors)
+		//it gets called while the logger is locked, so calling logging::info() etc inside a sink does nothing
+		using sink = std::function<void(severity, const std::string&)>;
+
+		void add_sink(sink s)
+		{
+			std::lock_guard lock(m_mutex);
+			m_sinks.push_back(std::move(s));
+		}
+
+		void clear_sinks()
+		{
+			std::lock_guard lock(m_mutex);
+			m_sinks.clear();
+		}
+
+		//flushes the file and calls std::abort() right after a fatal message (off by default)
+		void set_abort_on_fatal(bool enable)
+		{
+			std::lock_guard lock(m_mutex);
+			m_abort_on_fatal = enable;
+		}
+
+		//true = flush the file after every line (slow if you log a lot)
+		//false = only flush on warning and above, so errors still make it to disk if the program crashes
+		void set_auto_flush(bool enable)
+		{
+			std::lock_guard lock(m_mutex);
+			m_auto_flush = enable;
+		}
+
+		//force everything to disk rn
+		void flush()
+		{
+			std::lock_guard lock(m_mutex);
+			m_file.flush();
+		}
+
+		//adds pid to every new log line
 		void set_show_pid(bool show)
 		{
 			std::lock_guard lock(m_mutex);
@@ -97,19 +137,18 @@ namespace logging
 
 		void log(severity s, const std::string& message, const std::source_location& loc = std::source_location::current())
 		{
-			std::lock_guard lock(m_mutex);
+			if (in_sink()) return;
+
+			std::unique_lock lock(m_mutex);
 			if (s < m_min) return;
 
 			std::string prefix;
 
-			if (m_show_time)
-				prefix += std::format(" [{}]", GetTime());
+			if (m_show_time) prefix += std::format(" [{}]", current_time());
 
-			if (m_show_severity)
-				prefix += std::format(" [{}]", SeverityToString(s));
+			if (m_show_severity) prefix += std::format(" [{}]", severity_to_string(s));
 
-			if (m_show_pid)
-				prefix += std::format(" [pid:{}]", m_pid);
+			if (m_show_pid) prefix += std::format(" [pid:{}]", m_pid);
 
 			if (m_show_location)
 			{
@@ -117,31 +156,50 @@ namespace logging
 				prefix += std::format(" [{}:{}]", name, loc.line());
 			}
 
-			//everything above starts with a space, so cut that off
+			//everything above starts with a space
 			std::string line = prefix.empty() ? message : prefix.substr(1) + ": " + message;
 
 			std::ostream& out = (m_use_stderr && s >= severity::error) ? std::cerr : std::cout;
 
-			if (m_use_color)
-				out << color(s) << line << termcolor::reset << '\n';
-			else
-				out << line << '\n';
+			if (m_use_color) out << color(s) << line << termcolor::reset << '\n';
+			else out << line << '\n';
 
 			if (m_log_to_file)
 			{
-				//only create the file the first time we actually need it
+				//only create the file the first time its needed
 				if (!m_file_tried)
 				{
 					m_file_tried = true;
 					m_file.open("log.txt");
 				}
 
-				m_file.write(line);
+				m_file.write(line, m_auto_flush || s >= severity::warning);
+			}
+
+			in_sink() = true;
+			for (auto& fn : m_sinks)
+			{
+				try { fn(s, line); }
+				catch (...) {} //a broken sink shouldnt take the program down
+			}
+			in_sink() = false;
+
+			if (m_abort_on_fatal && s == severity::fatal)
+			{
+				m_file.flush();
+				lock.unlock(); //dont die while holding the mutex
+				std::abort();
 			}
 		}
 
 	private:
 		logger() : m_pid(LOGGING_GETPID()) {}
+
+		static bool& in_sink()
+		{
+			static thread_local bool flag = false;
+			return flag;
+		}
 
 		//termcolor for each severity
 		static std::ostream& (*color(severity s))(std::ostream&)
@@ -169,6 +227,9 @@ namespace logging
 		bool       m_use_stderr = true;
 		bool       m_log_to_file = true;
 		bool       m_file_tried = false;
+		bool       m_auto_flush = false;
+		bool       m_abort_on_fatal = false;
+		std::vector<sink> m_sinks;
 	};
 
 

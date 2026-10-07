@@ -17,9 +17,16 @@ namespace logging
 
 		bool is_open() const { return m_stream.is_open(); }
 
-		void write(const std::string& line)
+		void write(const std::string& line, bool flush = true)
 		{
-			if (m_stream.is_open()) m_stream << line << '\n' << std::flush;
+			if (!m_stream.is_open()) return;
+			m_stream << line << '\n';
+			if (flush) m_stream.flush();
+		}
+
+		void flush()
+		{
+			if (m_stream.is_open()) m_stream.flush();
 		}
 
 	private:
