@@ -72,6 +72,14 @@ int main()
 	logging::info("errors seen by the sink: {}", errors);
 	log.clear_sinks();
 
+	//sinks can change settings or remove themselves without deadlocking
+	log.add_sink([&](logging::severity, const std::string&)
+	{
+		log.set_use_color(true);
+		log.clear_sinks();
+	});
+	logging::info("this sink removes itself after the first line");
+
 	//log.set_abort_on_fatal(true); //would kill the program right after a fatal message
 
 	std::cin.get();
