@@ -33,6 +33,9 @@
     <ClInclude Include="include\src\file.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="include\src\helpers.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="tests\main.cpp">
