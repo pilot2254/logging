@@ -29,6 +29,14 @@
   <ItemGroup>
     <ClCompile Include="tests\main.cpp" />
   </ItemGroup>
+  <ItemGroup>
+    <CopyFileToFolders Include="LICENSE">
+      <FileType>Document</FileType>
+    </CopyFileToFolders>
+    <CopyFileToFolders Include="README.md">
+      <FileType>Document</FileType>
+    </CopyFileToFolders>
+  </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>18.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>

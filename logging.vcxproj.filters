@@ -39,4 +39,8 @@
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
+  <ItemGroup>
+    <CopyFileToFolders Include="LICENSE" />
+    <CopyFileToFolders Include="README.md" />
+  </ItemGroup>
 </Project>
