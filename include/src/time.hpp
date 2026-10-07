@@ -6,7 +6,7 @@
 
 namespace logging
 {
-	inline std::string GetTime()
+	inline std::string current_time()
 	{
 		using namespace std::chrono;
 		auto now = floor<milliseconds>(system_clock::now());

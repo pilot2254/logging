@@ -126,10 +126,10 @@ namespace logging
 			std::string prefix;
 
 			if (m_show_time)
-				prefix += std::format(" [{}]", GetTime());
+				prefix += std::format(" [{}]", current_time());
 
 			if (m_show_severity)
-				prefix += std::format(" [{}]", SeverityToString(s));
+				prefix += std::format(" [{}]", severity_to_string(s));
 
 			if (m_show_pid)
 				prefix += std::format(" [pid:{}]", m_pid);
